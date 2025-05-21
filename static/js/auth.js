@@ -5,19 +5,21 @@ document.addEventListener('DOMContentLoaded', function() {
     const loginForm = document.getElementById('loginForm');
     const registerForm = document.getElementById('registerForm');
 
-    loginTab.addEventListener('click', function() {
-        loginTab.classList.add('active');
-        registerTab.classList.remove('active');
-        loginForm.classList.add('active');
-        registerForm.classList.remove('active');
-    });
+    if (loginTab && registerTab && loginForm && registerForm) {
+        loginTab.addEventListener('click', function() {
+            loginTab.classList.add('active');
+            registerTab.classList.remove('active');
+            loginForm.classList.add('active');
+            registerForm.classList.remove('active');
+        });
 
-    registerTab.addEventListener('click', function() {
-        registerTab.classList.add('active');
-        loginTab.classList.remove('active');
-        registerForm.classList.add('active');
-        loginForm.classList.remove('active');
-    });
+        registerTab.addEventListener('click', function() {
+            registerTab.classList.add('active');
+            loginTab.classList.remove('active');
+            registerForm.classList.add('active');
+            loginForm.classList.remove('active');
+        });
+    }
 
     // Form submissions
     const loginFormEl = document.getElementById('loginForm');
@@ -41,68 +43,91 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    function submitForm(form, formData) {
-        const submitBtn = form.querySelector('button[type="submit"]');
-        const originalBtnText = submitBtn.textContent;
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+function submitForm(form, formData) {
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const originalBtnText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+    
+    fetch('/auth/', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': form.querySelector('[name=csrfmiddlewaretoken]').value,
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+    })
+    .then(response => {
+        if (response.redirected) {
+            window.location.href = response.url;
+            return;
+        }
         
-        fetch('/auth/', {
-            method: 'POST',
-            body: formData,
-            headers: {
-                'X-CSRFToken': form.querySelector('[name=csrfmiddlewaretoken]').value,
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-        })
-        .then(response => {
-            if (response.redirected) {
-                window.location.href = response.url;
-                return;
-            }
+        // First check if response is JSON
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
             return response.json().then(data => {
                 if (!response.ok) {
                     throw data;
                 }
                 return data;
             });
-        })
-        .then(data => {
-            if (data && data.redirect) {
-                window.location.href = data.redirect;
-            }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            submitBtn.disabled = false;
-            submitBtn.textContent = originalBtnText;
-            
-            if (error.errors) {
-                const errorContainer = document.createElement('div');
-                errorContainer.className = 'error-messages';
-                errorContainer.innerHTML = `
-                    <p><strong>Please fix the following errors:</strong></p>
-                    <ul>
-                        ${error.errors.map(err => `<li>${err}</li>`).join('')}
-                    </ul>
-                `;
-                
-                const existingErrors = form.querySelector('.error-messages');
-                if (existingErrors) {
-                    existingErrors.remove();
+        } else {
+            // If not JSON, return the text to see what we got
+            return response.text().then(text => {
+                // If the text looks like HTML, it's probably an error page
+                if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+                    throw { 
+                        message: 'Server returned an HTML error page', 
+                        status: response.status,
+                        statusText: response.statusText
+                    };
                 }
-                
-                form.insertBefore(errorContainer, submitBtn);
-                errorContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            } else {
-                alert('An unexpected error occurred. Please try again.');
+                throw { 
+                    message: 'Unexpected response from server', 
+                    response: text 
+                };
+            });
+        }
+    })
+    .then(data => {
+        if (data && data.redirect) {
+            window.location.href = data.redirect;
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalBtnText;
+        
+        if (error.errors) {
+            const errorContainer = document.createElement('div');
+            errorContainer.className = 'error-messages';
+            errorContainer.innerHTML = `
+                <p><strong>Please fix the following errors:</strong></p>
+                <ul>
+                    ${error.errors.map(err => `<li>${err}</li>`).join('')}
+                </ul>
+            `;
+            
+            const existingErrors = form.querySelector('.error-messages');
+            if (existingErrors) {
+                existingErrors.remove();
             }
-        });
-    }
-});
+            
+            form.insertBefore(errorContainer, submitBtn);
+            errorContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+            let errorMessage = 'An unexpected error occurred. Please try again.';
+            if (error.message === 'Server returned an HTML error page') {
+                errorMessage = `Server error (${error.status} ${error.statusText}). Please try again later.`;
+            }
+            alert(errorMessage);
+        }
+    });
+}
 
-// Add this logout functionality to your script.js or auth.js
-document.addEventListener('DOMContentLoaded', function() {
+    // Logout functionality
     const logoutBtn = document.getElementById('logoutBtn');
     if (logoutBtn) {
         logoutBtn.addEventListener('click', function(e) {
