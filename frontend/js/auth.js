@@ -165,4 +165,5 @@ function submitForm(form, formData) {
         }
         return cookieValue;
     }
+
 });
